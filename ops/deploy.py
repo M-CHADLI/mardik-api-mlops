@@ -20,10 +20,12 @@ Ligne de commande : ``python -m ops.deploy publier v2.0.0 | canary v2.0.0 --pour
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import subprocess
 import sys
 import time
+from pathlib import Path
 from typing import Any
 
 from app.llm_client import Bundle
@@ -32,10 +34,79 @@ from ops.dashboard import agreger
 from ops.registry import Registry
 
 POURCENTAGE_CANARY_DEFAUT = 10
+# Paliers de montée en charge du canary. Trois paliers plutôt que deux : entre
+# 10 % (assez peu pour qu'un incident reste contenu) et 100 %, 30 % donne un
+# volume suffisant pour que la distribution du score devienne lisible sans
+# exposer la majorité des juristes.
+PALIERS_CANARY: tuple[int, ...] = (10, 30, 100)
+
+CHEMIN_SEUILS = Path(__file__).resolve().parent / "seuils.json"
+SEUILS_DEFAUT: dict[str, float] = {
+    "score_min": 0.70,
+    "taux_erreur_max": 0.10,
+    "latence_p95_max_ms": 8000.0,
+    "minimum_mesures": 10,
+    "faible_confiance": 0.70,
+    "minimum_promotion": 30,
+    "marge_promotion": 0.05,
+}
 
 
 class ErreurDeploiement(RuntimeError):
     pass
+
+
+def charger_seuils(chemin: Path | None = None) -> dict[str, float]:
+    """Les seuils effectifs : les valeurs ajustées écrasent les valeurs par défaut.
+
+    Les seuils vivent dans un fichier, pas dans le code : les ajuster à partir
+    des distributions observées est une opération d'exploitation, pas une
+    livraison. Chaque ajustement passe par ``ajuster_seuil`` et laisse une trace.
+    """
+    chemin = Path(chemin or os.environ.get("SEUILS_PATH") or CHEMIN_SEUILS)
+    seuils = dict(SEUILS_DEFAUT)
+    if chemin.exists():
+        try:
+            seuils.update(json.loads(chemin.read_text(encoding="utf-8")))
+        except (json.JSONDecodeError, OSError):
+            pass
+    return seuils
+
+
+def ajuster_seuil(
+    nom: str,
+    valeur: float,
+    *,
+    auteur: str,
+    motif: str,
+    registry: Registry | None = None,
+    chemin: Path | None = None,
+) -> dict[str, float]:
+    """Change un seuil de pilotage et l'inscrit au journal.
+
+    L'exigence du CTO — « tout ajustement de la chaîne est tracé : quel signal
+    l'a déclenché, quand, par qui ou par quoi » — s'applique aussi aux seuils.
+    Un seuil qu'on remonte discrètement parce que l'alerte sonne trop souvent
+    est la façon la plus courante de désarmer une surveillance sans le dire.
+    """
+    if nom not in SEUILS_DEFAUT:
+        raise ErreurDeploiement(f"seuil inconnu : {nom} (connus : {', '.join(SEUILS_DEFAUT)})")
+    chemin = Path(chemin or os.environ.get("SEUILS_PATH") or CHEMIN_SEUILS)
+    seuils = charger_seuils(chemin)
+    ancienne = seuils[nom]
+    seuils[nom] = valeur
+    chemin.parent.mkdir(parents=True, exist_ok=True)
+    chemin.write_text(json.dumps(seuils, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    (registry or Registry()).journaliser(
+        "ajustement_seuil",
+        signal=nom,
+        auteur=auteur,
+        motif=motif,
+        avant={nom: ancienne},
+        apres={nom: valeur},
+    )
+    return seuils
 
 
 def _commit_courant() -> str:
@@ -94,6 +165,9 @@ def publier(
             "dispersion_note": getattr(rapport, "dispersion_note", 0.0),
             "latence_p95_ms": getattr(rapport, "latence_p95_ms", None),
             "cout_moyen_eur": getattr(rapport, "cout_moyen_eur", None),
+            # Référence de dérive, figée au moment du gate (cf. promouvoir_si_conforme).
+            "confiance_moyenne": getattr(rapport, "confiance_moyenne", None),
+            "distribution_confiance": getattr(rapport, "distribution_confiance", {}),
         },
     )
     registre.journaliser(
@@ -177,10 +251,10 @@ def surveiller(
     metriques: MetricsStore | None = None,
     *,
     fenetre_s: float = 120,
-    score_min: float = 0.7,
-    taux_erreur_max: float = 0.10,
-    latence_p95_max_ms: float = 8000,
-    minimum: int = 10,
+    score_min: float | None = None,
+    taux_erreur_max: float | None = None,
+    latence_p95_max_ms: float | None = None,
+    minimum: int | None = None,
 ) -> dict[str, Any]:
     """Détecte la dérive de la version sous surveillance et retombe en arrière.
 
@@ -189,7 +263,17 @@ def surveiller(
     d'une boucle automatique — déclencher un rollback sur trois requêtes, au
     redémarrage ou dans un creux de trafic, alors qu'aucun signal n'est encore
     statistiquement lisible.
+
+    Les seuils non précisés viennent de ``ops/seuils.json`` (cf. ``ajuster_seuil``) :
+    l'astreinte peut les resserrer sans relivrer, et chaque ajustement est tracé.
     """
+    seuils = charger_seuils()
+    score_min = seuils["score_min"] if score_min is None else score_min
+    taux_erreur_max = seuils["taux_erreur_max"] if taux_erreur_max is None else taux_erreur_max
+    latence_p95_max_ms = (
+        seuils["latence_p95_max_ms"] if latence_p95_max_ms is None else latence_p95_max_ms
+    )
+    minimum = int(seuils["minimum_mesures"] if minimum is None else minimum)
     registre = registry or Registry()
     store = metriques or MetricsStore()
     canary, _ = registre.canary()
@@ -232,7 +316,133 @@ def surveiller(
     return resultat
 
 
+def promouvoir_si_conforme(
+    registry: Registry | None = None,
+    metriques: MetricsStore | None = None,
+    *,
+    fenetre_s: float = 600,
+    minimum: int | None = None,
+    marge: float | None = None,
+    auteur: str = "automatique",
+) -> dict[str, Any]:
+    """Boucle 2 — monte le canary d'un palier si la fenêtre d'observation est concluante.
+
+    Trois conditions cumulées, dans cet ordre :
+
+    1. **assez de trafic** — en dessous de ``minimum_promotion`` mesures, aucune
+       distribution n'est lisible et promouvoir reviendrait à tirer à pile ou face ;
+    2. **aucune condition de rollback remplie** — on ne promeut pas une version
+       qu'on serait en train de retirer ;
+    3. **la confiance tient la référence du gate** — la confiance moyenne observée
+       en production doit atteindre celle mesurée quand la version a passé le gate,
+       à ``marge`` près.
+
+    La condition 3 répond à « dérive par rapport à quoi ». La référence est la
+    distribution constatée **à la sortie de la chaîne**, figée dans le manifeste,
+    et non une moyenne glissante : une référence glissante absorberait lentement
+    la dérive qu'elle est censée détecter, et finirait par la valider.
+
+    Un refus est journalisé au même titre qu'une promotion. Savoir pourquoi la v2
+    n'est **pas** montée est aussi utile que de savoir pourquoi elle est montée —
+    et c'est ce qui manque le plus souvent quand une migration stagne sans que
+    personne ne sache dire sur quel critère elle bloque.
+    """
+    registre = registry or Registry()
+    store = metriques or MetricsStore()
+    seuils = charger_seuils()
+    minimum = int(seuils["minimum_promotion"] if minimum is None else minimum)
+    marge = float(seuils["marge_promotion"] if marge is None else marge)
+
+    canary, pourcentage = registre.canary()
+    resultat: dict[str, Any] = {
+        "version": canary,
+        "pourcentage": pourcentage,
+        "mesures": 0,
+        "promue": False,
+        "palier": None,
+        "motif": "",
+    }
+    if not canary:
+        resultat["motif"] = "aucun canary en cours"
+        return resultat
+
+    mesures = store.lire(depuis_s=fenetre_s, version=canary)
+    resultat["mesures"] = len(mesures)
+    if len(mesures) < minimum:
+        resultat["motif"] = f"fenêtre incomplète : {len(mesures)}/{minimum} mesures"
+        return resultat
+
+    diagnostic = surveiller(
+        registre, store, fenetre_s=fenetre_s, minimum=minimum, score_min=seuils["score_min"]
+    )
+    if diagnostic["derive"]:
+        resultat["motif"] = f"dérive en cours : {diagnostic['motif']}"
+        return resultat
+
+    indicateurs = agreger(mesures)
+    resultat["indicateurs"] = indicateurs
+    reference = registre.manifest(canary).get("confiance_moyenne")
+    observee = indicateurs["score_moyen"]
+    if reference is not None and observee is not None and observee < reference - marge:
+        resultat["motif"] = (
+            f"confiance observée {observee:.3f} < référence du gate "
+            f"{reference:.3f} (marge {marge})"
+        )
+        registre.journaliser(
+            "promotion_refusee",
+            version=canary,
+            signal="score de confiance",
+            auteur=auteur,
+            valeur_observee=observee,
+            seuil=round(reference - marge, 4),
+            motif=resultat["motif"],
+            fenetre=len(mesures),
+        )
+        return resultat
+
+    suivant = palier_suivant(pourcentage)
+    if suivant is None or suivant >= 100:
+        index = promouvoir(canary, registry=registre)
+        resultat.update(promue=True, palier=100, motif="promotion totale", index=index)
+        return resultat
+
+    registre.definir_canary(canary, suivant)
+    registre.journaliser(
+        "promotion_canary",
+        version=canary,
+        signal="score de confiance",
+        auteur=auteur,
+        valeur_observee=observee,
+        seuil=reference,
+        avant={"canary_percent": pourcentage},
+        apres={"canary_percent": suivant},
+        fenetre=len(mesures),
+    )
+    resultat.update(
+        promue=True, palier=suivant, motif=f"palier {pourcentage} % -> {suivant} %"
+    )
+    return resultat
+
+
+def palier_suivant(pourcentage: int) -> int | None:
+    """Le palier au-dessus de ``pourcentage`` dans ``PALIERS_CANARY``."""
+    for palier in PALIERS_CANARY:
+        if palier > pourcentage:
+            return palier
+    return None
+
+
+def _console_tolerante() -> None:
+    """Une console Windows en cp1252 ne doit pas faire planter un outil d'astreinte."""
+    for flux in (sys.stdout, sys.stderr):
+        try:
+            flux.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _console_tolerante()
     parser = argparse.ArgumentParser(description="Déploiement Mardik")
     sub = parser.add_subparsers(dest="commande", required=True)
     p = sub.add_parser("publier")
@@ -246,6 +456,15 @@ def main(argv: list[str] | None = None) -> int:
     pr.add_argument("version")
     r = sub.add_parser("rollback")
     r.add_argument("--motif", default="manuel")
+    pa = sub.add_parser("promouvoir-auto")
+    pa.add_argument("--fenetre", type=float, default=600)
+    pa.add_argument("--minimum", type=int, default=None)
+    pa.add_argument("--auteur", default="automatique")
+    sl = sub.add_parser("seuil")
+    sl.add_argument("nom")
+    sl.add_argument("valeur", type=float)
+    sl.add_argument("--auteur", required=True)
+    sl.add_argument("--motif", required=True)
     s = sub.add_parser("surveiller")
     s.add_argument("--boucle", action="store_true")
     s.add_argument("--intervalle", type=float, default=5.0)
@@ -261,6 +480,16 @@ def main(argv: list[str] | None = None) -> int:
             print(promouvoir(args.version))
         elif args.commande == "rollback":
             print(rollback(motif=args.motif))
+        elif args.commande == "promouvoir-auto":
+            print(
+                promouvoir_si_conforme(
+                    fenetre_s=args.fenetre, minimum=args.minimum, auteur=args.auteur
+                )
+            )
+        elif args.commande == "seuil":
+            print(
+                ajuster_seuil(args.nom, args.valeur, auteur=args.auteur, motif=args.motif)
+            )
         elif args.commande == "surveiller":
             while True:
                 res = surveiller(fenetre_s=args.fenetre)

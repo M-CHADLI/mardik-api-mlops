@@ -1,8 +1,9 @@
-.PHONY: install up down serve proxy dashboard test test-integration test-acceptance eval traffic ci fixtures lint fmt clean
+.PHONY: install up down serve proxy frontend promouvoir captures dashboard test test-integration test-acceptance eval traffic ci fixtures lint fmt clean
 
 MODE ?= normal
 VERSION ?= v2
 DUREE ?= 60
+FENETRE ?= 600
 RPS ?= 1
 
 install:            ## dépendances (uv)
@@ -20,6 +21,16 @@ serve:              ## app en local, sans docker (le proxy doit tourner : make p
 
 proxy:              ## proxy de dérive en local
 	uv run python -m ops.drift_proxy
+
+frontend:           ## client + pilotage sur http://localhost:8000/
+	uv run python -m scripts.amorcer_demo
+	uv run uvicorn app.main:app --port 8000
+
+promouvoir:         ## boucle 2 — promotion canary si les metriques sont conformes
+	uv run python -m ops.deploy promouvoir-auto --fenetre $(FENETRE)
+
+captures:           ## boucle 3 — cas captures en attente de relecture
+	uv run python -c "from eval.enrichissement import file_attente; import json; print(json.dumps(file_attente(), ensure_ascii=False, indent=2))"
 
 dashboard:          ## tableau de bord en local (texte) — DASH=serve pour la page HTML
 	uv run python -m ops.dashboard $(if $(filter serve,$(DASH)),--serve,)

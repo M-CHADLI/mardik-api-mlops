@@ -65,6 +65,12 @@ class Rapport:
     motifs: list[str] = field(default_factory=list)
     seuil: float = 0.75
     dispersion_note: float = 0.0
+    # Confiance mesurée par le gate, conservée dans le manifeste à la publication.
+    # C'est la **référence de dérive** : la promotion compare la confiance du
+    # trafic réel à celle constatée quand la version a passé le gate, pas à une
+    # moyenne glissante qui bougerait avec la dérive qu'elle est censée détecter.
+    confiance_moyenne: float | None = None
+    distribution_confiance: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -141,6 +147,7 @@ def evaluer(
     latences: list[float] = []
     couts: list[float] = []
     notes_par_essai: list[list[float]] = [[] for _ in range(essais)]
+    confiances: list[float] = []
     incidents: list[str] = []
 
     for cid in identifiants:
@@ -168,6 +175,7 @@ def evaluer(
                 nouvelles[-1].latence_ms if nouvelles else (time.perf_counter() - depart) * 1000
             )
             couts.append(sum(m.cout_eur for m in nouvelles))
+            confiances.extend(m.score for m in nouvelles if m.score is not None)
 
         seuil_note = float(reference.get("seuil_note", seuil))
         note_contrat = round(statistics.fmean(notes), 4)
@@ -199,6 +207,8 @@ def evaluer(
         motifs.append(f"coût moyen {cout_moyen:.4f} € >= plafond {cout_max_eur:.4f} €")
     motifs.extend(incidents)
 
+    from ops.dashboard import distribuer
+
     rapport = Rapport(
         version=bundle.version,
         date=datetime.now(timezone.utc).isoformat(timespec="seconds"),
@@ -211,6 +221,8 @@ def evaluer(
         motifs=motifs,
         seuil=seuil,
         dispersion_note=dispersion,
+        confiance_moyenne=round(statistics.fmean(confiances), 4) if confiances else None,
+        distribution_confiance=distribuer(confiances),
     )
     if historique is not None:
         _archiver(rapport, Path(historique))
@@ -254,10 +266,25 @@ def afficher(rapport: Rapport) -> None:
         f" | coût moyen = {rapport.cout_moyen_eur:.4f} €"
         f" | dispersion = {rapport.dispersion_note:.3f}"
     )
+    if rapport.confiance_moyenne is not None:
+        print(
+            f"confiance de référence = {rapport.confiance_moyenne:.3f}  "
+            + "  ".join(f"{k}: {v}" for k, v in rapport.distribution_confiance.items())
+        )
     print("GATE : " + ("PASSE" if rapport.passe else "ÉCHEC — " + " ; ".join(rapport.motifs)))
 
 
+def _console_tolerante() -> None:
+    """Une console Windows en cp1252 ne doit pas faire planter un outil d'astreinte."""
+    for flux in (sys.stdout, sys.stderr):
+        try:
+            flux.reconfigure(errors="replace")
+        except (AttributeError, ValueError):
+            pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _console_tolerante()
     parser = argparse.ArgumentParser(description="Gate d'évaluation Mardik")
     parser.add_argument("--version", default="v2")
     parser.add_argument("--seuil", type=float, default=0.75)

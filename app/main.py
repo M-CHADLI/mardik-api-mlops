@@ -12,7 +12,7 @@ import os
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from app import api_v1, api_v2, gateway
+from app import api_v1, api_v2, frontend, gateway
 from app.telemetry import build_default_telemetry
 
 
@@ -23,6 +23,7 @@ def create_app() -> FastAPI:
     app.include_router(api_v1.router)
     app.include_router(api_v2.router)
     app.include_router(gateway.router)
+    app.include_router(frontend.router)
 
     @app.get("/health")
     def health() -> dict[str, str]:

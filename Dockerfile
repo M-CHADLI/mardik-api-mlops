@@ -10,6 +10,7 @@ COPY ops ./ops
 COPY eval ./eval
 COPY models ./models
 COPY scripts ./scripts
+COPY web ./web
 
 RUN uv pip install --system --no-cache .
 

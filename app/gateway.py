@@ -143,4 +143,37 @@ def analyse(
         canary=index.get("canary"),
         latence_ms=round((time.perf_counter() - debut) * 1000, 1),
     )
-    return resultat.model_dump()
+
+    corps = resultat.model_dump()
+    _capturer_si_peu_fiable(corps, requete.texte, version, registry, telemetry)
+    return corps
+
+
+def _capturer_si_peu_fiable(
+    corps: dict, texte: str, version: str, registry: Registry, telemetry: Telemetry
+) -> None:
+    """Boucle 3 : une analyse peu fiable servie en production nourrit le jeu d'éval.
+
+    Branchée ici et pas dans ``analyser_v2`` : le gate d'évaluation appelle le
+    même moteur, il capturerait donc ses propres contrats à chaque exécution et
+    le jeu d'éval grossirait en se recopiant. Seul le trafic réel alimente la
+    boucle.
+
+    Une capture ne doit jamais faire échouer l'analyse qui l'a déclenchée : le
+    client a sa réponse, l'enrichissement est un effet de bord best-effort.
+    """
+    confiance = corps.get("confiance_globale")
+    if confiance is None:
+        return  # la v1 ne produit pas de score : rien à capturer
+    try:
+        from eval.enrichissement import capturer
+
+        capturer(
+            texte,
+            confiance=float(confiance),
+            version=version,
+            clauses_trouvees=[c["type"] for c in corps.get("clauses", [])],
+            registry=registry,
+        )
+    except Exception as exc:
+        telemetry.logger.warning("capture.echec", version=version, cause=repr(exc))

@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mardik — pilotage</title>
+<link rel="stylesheet" href="/web/commun.css">
+</head>
+<body>
+<header>
+  <h1>Mardik — pilotage</h1>
+  <a href="/">Analyser</a>
+  <a href="/pilotage" aria-current="page">Pilotage</a>
+  <span class="version" id="etat-chaine">—</span>
+</header>
+
+<main>
+  <div class="carte">
+    <h2>Trafic par version <small id="fenetre"></small></h2>
+    <table>
+      <thead>
+        <tr><th>Version</th><th>Trafic</th><th>Req.</th><th>P50 ms</th><th>P95 ms</th>
+            <th>Erreurs</th><th>Confiance</th><th>Coût €</th></tr>
+      </thead>
+      <tbody id="versions"></tbody>
+    </table>
+  </div>
+
+  <div class="carte">
+    <h2>Distribution du score de confiance
+      <small>— la moyenne seule masque une distribution bimodale</small></h2>
+    <div id="distributions"></div>
+  </div>
+
+  <div class="carte">
+    <h2>Cas capturés en attente de relecture
+      <small>— boucle 3 : faible confiance → jeu d'évaluation</small></h2>
+    <div id="captures"></div>
+  </div>
+
+  <div class="carte">
+    <h2>Journal de pilotage <small>— promotions, rollbacks, ajustements de seuil</small></h2>
+    <ul class="journal" id="journal"></ul>
+  </div>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const echapper = (s) => String(s).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+const pct = (v) => (v * 100).toFixed(1) + ' %';
+
+async function rafraichir() {
+  const r = await fetch('/api/pilotage?fenetre=900');
+  const d = await r.json();
+  const idx = d.index || {};
+
+  $('etat-chaine').textContent =
+    `actif ${idx.active || '—'} · canary ${idx.canary || '—'} (${idx.canary_percent || 0} %)`;
+  $('fenetre').textContent = `— ${d.total} requête(s) sur ${Math.round(d.fenetre_s)} s`;
+
+  const versions = Object.entries(d.par_version);
+  $('versions').innerHTML = versions.length ? versions.map(([v, m]) => `<tr>
+      <td><b>${v}</b></td>
+      <td>${m.trafic_pct.toFixed(1)} %</td>
+      <td>${m.requetes}</td>
+      <td>${m.latence_p50_ms.toFixed(0)}</td>
+      <td class="${m.latence_p95_ms > 8000 ? 'alerte' : ''}">${m.latence_p95_ms.toFixed(0)}</td>
+      <td class="${m.taux_erreur > 0.1 ? 'alerte' : ''}">${pct(m.taux_erreur)}</td>
+      <td class="${m.score_moyen !== null && m.score_moyen < 0.7 ? 'alerte' : ''}">
+        ${m.score_moyen === null ? '—' : m.score_moyen.toFixed(3)}</td>
+      <td>${m.cout_total_eur.toFixed(4)}</td>
+    </tr>`).join('') : '<tr><td colspan="8" class="vide">Aucun trafic dans la fenêtre.</td></tr>';
+
+  $('distributions').innerHTML = versions
+    .filter(([, m]) => m.scores_mesures > 0)
+    .map(([v, m]) => {
+      const total = Math.max(1, m.scores_mesures);
+      const barres = Object.entries(m.distribution_score).map(([lbl, n]) => `
+        <div class="tranche"><span class="lbl">${lbl}</span>
+          <span class="jauge"><i style="width:${(n / total * 100).toFixed(1)}%"></i></span>
+          <span class="cnt">${n}</span></div>`).join('');
+      return `<h2 style="margin-top:1rem">${v}
+        <small>P10 ${m.score_p10.toFixed(2)} · P50 ${m.score_p50.toFixed(2)}
+        · P90 ${m.score_p90.toFixed(2)}</small></h2>${barres}`;
+    }).join('') || '<p class="vide">Aucun score dans la fenêtre.</p>';
+
+  const c = await (await fetch('/api/captures')).json();
+  $('captures').innerHTML = c.attente.length ? c.attente.map((cas) => `
+    <div class="cas">
+      <div class="entete">
+        <b>${cas.id}</b>
+        <span class="pastille ${cas.confiance_observee < 0.5 ? 'basse' : 'moyenne'}">
+          confiance ${(cas.confiance_observee * 100).toFixed(0)} %</span>
+        <span class="doux">${cas.taille.toLocaleString('fr-FR')} caractères
+          · capturé le ${(cas.capture_le || '').replace('T', ' ').slice(0, 16)}</span>
+      </div>
+      <span class="extrait">${echapper(cas.contrat).slice(0, 300)}…</span>
+      <div class="retire">pseudonymisé : ${
+        Object.entries(cas.anonymisation || {}).map(([k, n]) => `${k} ×${n}`).join(', ')
+        || 'aucun motif reconnu — relecture d’autant plus nécessaire'
+      }</div>
+    </div>`).join('') : '<p class="vide">Aucun cas en attente.</p>';
+
+  $('journal').innerHTML = (d.journal || []).slice().reverse().map((e) => `
+    <li><b>${e.evenement}</b> — <span class="doux">${e.date || ''}</span>
+      ${echapper(e.motif || e.signal || e.version || '')}</li>`).join('')
+    || '<li class="vide">Journal vide.</li>';
+}
+
+rafraichir();
+setInterval(rafraichir, 5000);
+</script>
+</body>
+</html>
