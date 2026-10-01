@@ -1,26 +1,85 @@
-# Bundle v2 — la nouvelle version. [À COMPLÉTER — chantier 1]
+# Bundle v2 — la nouvelle version.
 #
-# Même client LLM que la v1 (app/llm_client.py). Ce qui change, c'est ce
-# bundle. La structure est là ; la stratégie, le schéma de sortie et les
-# paramètres sont à décider — et à justifier en revue de conception.
-#
-# Question : qu'est-ce qui, dans ce fichier, fait qu'une version est une version ?
+# « Qu'est-ce qui, dans ce fichier, fait qu'une version est une version ? »
+# Tout ce qui change la sortie du système à code constant : le modèle de base,
+# le prompt, les paramètres d'échantillonnage, le schéma de sortie et la
+# stratégie d'orchestration. Le code, lui, ne sait que lire ce bundle : il
+# n'embarque aucune de ces décisions en dur. C'est ce qui permet d'étiqueter,
+# de livrer et de revenir en arrière sur une *version* sans redéployer l'app —
+# l'empreinte SHA-256 de ce fichier est l'identité de l'artefact (cf. Registry).
 
 version: v2.0.0
 modele: ${LLM_MODEL}
-strategie: monolithique          # TODO : map_reduce_clauses (voir app/pipeline/)
+strategie: map_reduce_clauses   # découpage par article → 1 appel/section → consolidation
 
 prompt: |
-  TODO — le prompt de la v2. Il s'applique à UNE section du contrat (titre +
-  texte), pas au contrat entier. Il doit imposer les libellés de clauses
-  (voir app/llm_client.py::TYPES_CLAUSES) et une sortie JSON.
+  Tu es un assistant juridique. On te donne UNE section d'un contrat commercial
+  (son intitulé, puis son texte). Tu relèves les clauses présentes DANS CETTE
+  SECTION UNIQUEMENT.
+
+  Règles :
+  - n'utilise que ces libellés, à l'identique :
+    résiliation, pénalité de retard, confidentialité, propriété intellectuelle,
+    limitation de responsabilité, force majeure, durée, prix et paiement,
+    non-concurrence, garantie, données personnelles, droit applicable,
+    exclusivité, reconduction tacite ;
+  - pour chaque clause, cite un `extrait` RECOPIÉ MOT POUR MOT depuis le texte
+    fourni — ne reformule pas, ne résume pas, n'invente pas ;
+  - `confiance` est ta propre certitude que la clause est bien présente (0 à 1) ;
+  - si la section ne contient aucune clause de la liste, renvoie une liste vide.
+
+  Réponds uniquement par un objet JSON conforme au schéma.
 
 parametres:
-  temperature: 0.2               # TODO : quelle valeur pour un gate stable ?
-  max_tokens: 300
-  seed: null                     # TODO
-  contexte_max_caracteres: 6000  # par section, plus par contrat
-  essais_eval: 1                 # nombre de passes du gate (moyenne)
+  temperature: 0.0        # un gate n'est exploitable que si sa note bouge pour
+                          # une raison métier, pas à cause de l'échantillonnage
+  max_tokens: 800         # une section peut porter plusieurs clauses + extraits
+  seed: 1789              # fixée pour que deux passes soient comparables
+  contexte_max_caracteres: 6000   # PAR SECTION — le contrat entier n'est plus borné
+  concurrence: 8          # sections analysées de front : un contrat de 40 pages fait
+                          # ~35 appels ; en série il tiendrait ~35 s, bien au-delà
+                          # des 8 s exigées. C'est un paramètre de version : le
+                          # monter change la latence ET la charge sur le fournisseur.
+  essais_eval: 1          # CI (MOCK) : déterministe, 1 passe suffit.
+                          # Gate de release sur vrai modèle : `make eval ARGS="--essais 3"`
 
-schema_sortie: null              # TODO : le schéma JSON de la sortie (clauses : type, extrait, confiance)
+# Le schéma de sortie fait partie de la version : le changer change le contrat
+# de données entre le modèle et le pipeline, donc exige une nouvelle étiquette.
+schema_sortie:
+  type: object
+  required: [clauses]
+  additionalProperties: false
+  properties:
+    clauses:
+      type: array
+      items:
+        type: object
+        required: [type, extrait, confiance]
+        additionalProperties: false
+        properties:
+          type:
+            type: string
+            enum:
+              - résiliation
+              - pénalité de retard
+              - confidentialité
+              - propriété intellectuelle
+              - limitation de responsabilité
+              - force majeure
+              - durée
+              - prix et paiement
+              - non-concurrence
+              - garantie
+              - données personnelles
+              - droit applicable
+              - exclusivité
+              - reconduction tacite
+          extrait:
+            type: string
+            description: citation littérale tirée de la section
+          confiance:
+            type: number
+            minimum: 0
+            maximum: 1
+
 cout_par_1k_tokens: 0.002

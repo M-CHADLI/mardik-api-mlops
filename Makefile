@@ -48,7 +48,8 @@ ci:                 ## l'équivalent local du workflow GitHub (MOCK=on)
 	uv run ruff check .
 	MOCK=on uv run pytest -q tests/integration
 	MOCK=on uv run pytest -q tests/acceptance
-	@echo "TODO gate d'évaluation / publication / canary : voir .github/workflows/llmops.yml"
+	MOCK=on uv run python -m eval.run_eval --version v2 --seuil 0.75
+	@echo "CI verte. Publication/canary : sur tag ou workflow_dispatch (voir .github/workflows/llmops.yml)"
 
 lint:
 	uv run ruff check .
