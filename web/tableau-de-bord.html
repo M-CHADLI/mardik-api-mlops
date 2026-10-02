@@ -15,6 +15,17 @@
 </header>
 
 <main>
+  <div class="carte" id="commandes" hidden>
+    <h2>Boucles de rétroaction <small>— déclenchables ici en mode démonstration</small></h2>
+    <div class="ligne">
+      <button id="btn-surveiller">Boucle 1 — surveiller (rollback si dérive)</button>
+      <button id="btn-promouvoir">Boucle 2 — promouvoir si conforme</button>
+      <span class="doux" id="retour-commande"></span>
+    </div>
+    <p class="doux">La boucle 3 se déclenche seule à chaque analyse peu fiable ;
+      les cas capturés se relisent plus bas.</p>
+  </div>
+
   <div class="carte">
     <h2>Trafic par version <small id="fenetre"></small></h2>
     <table>
@@ -46,6 +57,8 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
+let TYPES = [];
+let DEMO = false;
 const echapper = (s) => String(s).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
 const pct = (v) => (v * 100).toFixed(1) + ' %';
 
@@ -95,6 +108,14 @@ async function rafraichir() {
           · capturé le ${(cas.capture_le || '').replace('T', ' ').slice(0, 16)}</span>
       </div>
       <span class="extrait">${echapper(cas.contrat).slice(0, 300)}…</span>
+      ${DEMO ? `<div class="relire">
+        <span class="doux">clauses réellement attendues :</span>
+        ${TYPES.map((ty) => `<label><input type="checkbox" data-cas="${cas.id}" value="${ty}"> ${ty}</label>`).join('')}
+        <div class="ligne">
+          <button onclick="relire('${cas.id}','valider')">Verser au jeu d'évaluation</button>
+          <button class="discret" onclick="relire('${cas.id}','rejeter')">Écarter</button>
+        </div>
+      </div>` : ''}
       <div class="retire">pseudonymisé : ${
         Object.entries(cas.anonymisation || {}).map(([k, n]) => `${k} ×${n}`).join(', ')
         || 'aucun motif reconnu — relecture d’autant plus nécessaire'
@@ -107,8 +128,57 @@ async function rafraichir() {
     || '<li class="vide">Journal vide.</li>';
 }
 
-rafraichir();
-setInterval(rafraichir, 5000);
+async function commande(chemin, bouton) {
+  bouton.disabled = true;
+  $('retour-commande').textContent = 'exécution…';
+  try {
+    const r = await fetch(chemin, { method: 'POST' });
+    const d = await r.json();
+    // On rend le motif tel que la boucle l'a formulé : c'est la même phrase
+    // que celle inscrite au journal de pilotage, donc vérifiable juste en dessous.
+    $('retour-commande').textContent = r.ok
+      ? (d.motif || (d.derive ? 'dérive détectée' : 'aucune action nécessaire'))
+      : (d.detail || `erreur ${r.status}`);
+  } catch (e) {
+    $('retour-commande').textContent = 'erreur : ' + e.message;
+  } finally {
+    bouton.disabled = false;
+    rafraichir();
+  }
+}
+
+async function relire(cas, action) {
+  const corps = action === 'valider'
+    ? { clauses_attendues: [...document.querySelectorAll(`input[data-cas="${cas}"]:checked`)]
+          .map((c) => c.value),
+        auteur: 'juriste.demo' }
+    : { auteur: 'juriste.demo', motif: 'document jugé inexploitable' };
+  if (action === 'valider' && corps.clauses_attendues.length === 0) {
+    return alert('Cochez au moins une clause attendue avant de verser le cas.');
+  }
+  const r = await fetch(`/api/captures/${cas}/${action}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(corps),
+  });
+  const d = await r.json();
+  $('retour-commande').textContent = r.ok
+    ? (action === 'valider'
+        ? `cas versé au jeu d'évaluation sous ${d.contrat_id} — il sera rejoué au prochain gate`
+        : 'cas écarté')
+    : (d.detail || `erreur ${r.status}`);
+  rafraichir();
+}
+
+(async () => {
+  DEMO = (await (await fetch('/api/pilotage/mode')).json()).demo;
+  TYPES = (await (await fetch('/api/clauses')).json()).types;
+  $('commandes').hidden = !DEMO;
+  $('btn-surveiller').addEventListener('click', (e) => commande('/api/pilotage/surveiller?fenetre=900', e.target));
+  $('btn-promouvoir').addEventListener('click', (e) => commande('/api/pilotage/promouvoir?fenetre=900&minimum=5', e.target));
+  rafraichir();
+  setInterval(rafraichir, 5000);
+})();
 </script>
 </body>
 </html>

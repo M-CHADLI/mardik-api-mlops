@@ -83,6 +83,10 @@ score de confiance (tranches métier + P10/P50/P90), pas seulement sa moyenne.
 
 ### Les trois boucles de rétroaction
 
+Les trois sont **déclenchables depuis le tableau de bord en ligne** (boutons
+« Boucle 1 » et « Boucle 2 », formulaire de relecture pour la boucle 3), en plus
+de la ligne de commande.
+
 | # | Boucle | Code | Déclencheur |
 |---|---|---|---|
 | 1 | **Rollback sur signal** | [`ops/deploy.py::surveiller`](../ops/deploy.py) | confiance < 0,70, erreurs > 10 %, ou P95 > 8 s — automatique |
@@ -114,6 +118,7 @@ absorberait lentement la dérive qu'elle est censée détecter.
 | `/` | [`web/index.html`](../web/index.html) | le juriste colle un contrat, lit les clauses et leur **fiabilité** |
 | `/pilotage` | [`web/tableau-de-bord.html`](../web/tableau-de-bord.html) | trafic, distribution, cas capturés, journal |
 | — | [`app/frontend.py`](../app/frontend.py) | routes et API du frontend |
+| — | [`app/frontend.py`](../app/frontend.py) | routes de pilotage, actives seulement si `DEMO=on` |
 | — | [`render.yaml`](../render.yaml) | déploiement (Render, `MOCK=on` : la démonstration publique ne consomme pas de clé API) |
 
 Le client tape sur `/analyse` (la gateway) et non sur `/v2` : il voit donc

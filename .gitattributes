@@ -1,0 +1,9 @@
+# Les scripts exécutés dans l'image Docker doivent garder des fins de ligne LF.
+# Avec CRLF, `sh` lit « set -e\r » et s'arrête sur « Illegal option - ».
+# Le dépôt est développé sous Windows : sans cette règle, la conversion
+# automatique casse le démarrage du conteneur.
+*.sh text eol=lf
+Dockerfile text eol=lf
+Makefile text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
