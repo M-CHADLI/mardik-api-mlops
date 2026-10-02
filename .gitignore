@@ -24,6 +24,9 @@ uv.lock
 
 # Généré à l'exécution
 eval/history.jsonl
+# Cas capturés en production : pseudonymisés mais pas encore relus.
+eval/captures.jsonl
+eval/contrats/p*.txt
 eval/.metrics_eval.jsonl
 ops/metrics.jsonl
 ops/registry/journal.jsonl

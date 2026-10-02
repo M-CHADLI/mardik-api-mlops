@@ -1,0 +1,38 @@
+# Hébergement du frontend et de l'API — livrable « un client accessible via un lien ».
+#
+# Le service tourne en MOCK=on : la démonstration publique ne doit ni consommer
+# de clé API ni facturer d'appels LLM à chaque visiteur. Les réponses viennent
+# des fixtures enregistrées, donc la chaîne, le canary, le tableau de bord et
+# les trois boucles sont pleinement fonctionnels — seule la qualité du modèle
+# n'est pas celle du jour. Pour une démonstration sur modèle réel : MOCK=off,
+# LLM_PROVIDER + clés dans les variables d'environnement du tableau Render.
+#
+# Limite assumée : le plan gratuit n'a pas de disque persistant. Le registre et
+# les métriques repartent à zéro à chaque redémarrage, d'où l'amorçage au boot.
+services:
+  - type: web
+    name: mardik-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    region: frankfurt
+    healthCheckPath: /health
+    envVars:
+      - key: MOCK
+        value: "on"
+      - key: DRIFT
+        value: "off"
+      - key: LLM_PROVIDER
+        value: ollama
+      - key: LLM_MODEL
+        value: modele-demo
+      - key: OTEL_TRACES
+        value: "off"
+      - key: LOG_LEVEL
+        value: INFO
+      - key: METRICS_PATH
+        value: /app/ops/metrics.jsonl
+      - key: REGISTRY_PATH
+        value: /app/ops/registry
+      - key: CAPTURES_PATH
+        value: /app/eval/captures.jsonl
