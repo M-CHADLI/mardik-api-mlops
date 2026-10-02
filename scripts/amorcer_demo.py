@@ -27,8 +27,11 @@ CONTRATS_AMORCAGE = ["c01", "c02", "c07"]
 
 def amorcer(registry: Registry | None = None, *, pourcentage: int = 20) -> dict:
     registre = registry or Registry()
-    if registre.active():
-        return {"amorce": False, "motif": "registre déjà initialisé"}
+    # La garde porte sur la v2, pas sur « un registre non vide » : l'image
+    # embarque déjà la v1.0.0 étiquetée, donc tester l'active ferait croire que
+    # tout est en place alors que la version à démontrer n'est pas publiée.
+    if "v2.0.0" in registre.versions():
+        return {"amorce": False, "motif": "v2.0.0 déjà publiée"}
 
     if "v1.0.0" not in registre.versions():
         registre.etiqueter("v1.0.0", Bundle.charger("v1"), commit="historique", note_eval=None)

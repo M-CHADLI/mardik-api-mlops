@@ -16,4 +16,6 @@ RUN uv pip install --system --no-cache .
 
 EXPOSE 8000 8080 8501
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+RUN chmod +x scripts/demarrer.sh
+
+CMD ["sh", "scripts/demarrer.sh"]

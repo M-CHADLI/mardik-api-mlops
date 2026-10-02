@@ -36,6 +36,3 @@ services:
         value: /app/ops/registry
       - key: CAPTURES_PATH
         value: /app/eval/captures.jsonl
-    dockerCommand: >
-      sh -c "python -m scripts.amorcer_demo;
-      uvicorn app.main:app --host 0.0.0.0 --port $PORT"
