@@ -298,3 +298,63 @@ def test_analyse_de_bout_en_bout_par_le_frontend(client, registry, contrat):
     assert r.headers["x-mardik-version"] == "v2.0.0"
     assert corps["confiance_globale"] > 0 and corps["sections"] > 1
     assert {"résiliation", "droit applicable"} <= {c["type"] for c in corps["clauses"]}
+
+
+# ------------------------------------ pilotage depuis le frontend (démo)
+
+
+def test_actions_de_pilotage_refusees_hors_demo(client, monkeypatch):
+    """Étant donné une instance ordinaire, quand on tente une action de pilotage
+    par HTTP, alors elle est refusée : rollback et promotion ne s'exposent pas
+    sur une page non authentifiée."""
+    monkeypatch.setenv("DEMO", "off")
+    assert client.get("/api/pilotage/mode").json() == {"demo": False}
+    for chemin in ("/api/pilotage/surveiller", "/api/pilotage/promouvoir"):
+        r = client.post(chemin)
+        assert r.status_code == 403 and "ops.deploy" in r.json()["detail"]
+    r = client.post("/api/captures/inexistant/valider",
+                    json={"clauses_attendues": ["durée"], "auteur": "x.y"})
+    assert r.status_code == 403
+
+
+def test_boucles_pilotables_en_demo(client, registry, metriques, monkeypatch):
+    """Étant donné une instance de démonstration, quand on déclenche les boucles
+    depuis le tableau de bord, alors elles s'exécutent et laissent leur trace."""
+    from ops.deploy import deployer_canary
+
+    monkeypatch.setenv("DEMO", "on")
+    registry.etiqueter("v2.0.0", Bundle.charger("v2"), commit="abc1234", note_eval=0.95,
+                       details={"confiance_moyenne": 0.80})
+    deployer_canary("v2.0.0", pourcentage=10, registry=registry)
+    _servir(metriques, n=40, score=0.88)
+
+    assert client.get("/api/pilotage/mode").json() == {"demo": True}
+    assert len(client.get("/api/clauses").json()["types"]) == 14
+
+    # Boucle 1 : trafic sain, aucune dérive, aucun rollback
+    r = client.post("/api/pilotage/surveiller?fenetre=60").json()
+    assert r["derive"] is False and r["rollback"] is False
+
+    # Boucle 2 : métriques conformes, le canary monte d'un palier
+    r = client.post("/api/pilotage/promouvoir?fenetre=60&minimum=30").json()
+    assert r["promue"] is True and r["palier"] == 30
+    assert registry.journal()[-1]["evenement"] == "promotion_canary"
+
+
+def test_relecture_d_un_cas_depuis_le_frontend(client, registry, monkeypatch, tmp_path):
+    """Boucle 3 : un cas capturé se relit et se verse depuis le tableau de bord."""
+    from eval.enrichissement import capturer
+
+    monkeypatch.setenv("DEMO", "on")
+    cas = capturer("Article 1 — Résiliation. " + "texte " * 40,
+                   confiance=0.42, version="v2.0.0", registry=registry)
+
+    attente = client.get("/api/captures").json()["attente"]
+    assert [c["id"] for c in attente] == [cas["id"]]
+
+    r = client.post(f"/api/captures/{cas['id']}/valider",
+                    json={"clauses_attendues": ["résiliation"], "auteur": "juriste.demo"})
+    assert r.status_code == 200
+    assert r.json()["origine"] == "production"
+    assert client.get("/api/captures").json()["attente"] == []
+    assert registry.journal()[-1]["evenement"] == "enrichissement_jeu_evaluation"

@@ -20,6 +20,13 @@ services:
     envVars:
       - key: MOCK
         value: "on"
+      # Expose les commandes de pilotage dans le tableau de bord. Réservé à une
+      # instance de démonstration : ces actions ne sont pas authentifiées, et
+      # n'ont de sens que sur un service sans donnée client.
+      - key: DEMO
+        value: "on"
+      - key: SEUILS_PATH
+        value: /app/ops/seuils.json
       - key: DRIFT
         value: "off"
       - key: LLM_PROVIDER

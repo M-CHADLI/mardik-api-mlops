@@ -103,3 +103,9 @@ ul.journal b { font-weight: 600; }
 .cas .entete b { font-family: ui-monospace, Consolas, monospace; }
 .cas .extrait { white-space: pre-wrap; margin-top: .35rem; max-height: 4.5rem; overflow: hidden; }
 .cas .retire { font-size: .8rem; color: var(--doux); margin-top: .25rem; }
+
+/* Formulaire de relecture d'un cas capturé (boucle 3). */
+.relire { margin-top: .5rem; padding: .5rem .7rem; background: #f3f5f8; border-radius: .4rem; }
+.relire label { display: inline-block; font-size: .82rem; margin: .1rem .7rem .1rem 0; white-space: nowrap; }
+.relire .ligne { margin-top: .5rem; }
+.relire button { font-size: .85rem; padding: .35rem .8rem; }
