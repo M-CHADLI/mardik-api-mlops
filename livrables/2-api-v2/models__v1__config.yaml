@@ -1,0 +1,29 @@
+# Bundle v1 — la version historique, [FOURNI], INTOUCHABLE.
+#
+# Une « version du modèle » n'est pas un fichier de poids : c'est ce bundle.
+# Modèle de base + prompt + paramètres + schéma de sortie + stratégie.
+# La v1 est naïve : un seul appel avec tout le contrat dans un prompt court.
+# Conséquence réelle (pas simulée) : les contrats longs sont tronqués.
+
+version: v1.0.0
+modele: ${LLM_MODEL}          # résolu depuis .env (ex. Kimi-K2.6 ou llama3.2:3b)
+strategie: monolithique       # un seul appel, tout le contrat d'un coup
+
+prompt: |
+  Tu es un assistant juridique. On te donne le texte d'un contrat commercial.
+  Liste les types de clauses présentes dans le contrat, une par ligne,
+  précédée d'un tiret. Utilise uniquement ces libellés :
+  résiliation, pénalité de retard, confidentialité, propriété intellectuelle,
+  limitation de responsabilité, force majeure, durée, prix et paiement,
+  non-concurrence, garantie, données personnelles, droit applicable,
+  exclusivité, reconduction tacite.
+  Ne réponds rien d'autre.
+
+parametres:
+  temperature: 0.2
+  max_tokens: 300
+  seed: null
+  contexte_max_caracteres: 16000  # ≈ 4 000 tokens : au-delà, le contrat est coupé
+
+schema_sortie: null           # texte libre : une clause par ligne
+cout_par_1k_tokens: 0.002     # € — ordre de grandeur, à ajuster selon le fournisseur

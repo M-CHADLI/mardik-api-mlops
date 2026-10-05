@@ -9,6 +9,26 @@ Index du rendu : chaque livrable attendu, où il se trouve, et comment le vérif
 | **Dépôt** | https://github.com/M-CHADLI/mardik-api-mlops |
 | **Pull request** | [#1 — Chaîne LLMOps v2](https://github.com/M-CHADLI/mardik-api-mlops/pull/1) |
 
+## Contenu de ce dossier
+
+Les fichiers sont regroupés ici sous les cinq intitulés du brief. Ce sont des
+**copies** : la source dans le dépôt fait foi, et `python -m livrables.assembler`
+les régénère (voir `INSTANTANE.txt` pour le commit de référence).
+
+```
+livrables/
+├── INSTANTANE.txt            commit et date de l'assemblage
+├── 1-dossier-de-conception/  conception + expression de besoin
+├── 2-api-v2/                 API v2, pipeline, gateway, bundles, client v1
+├── 3-chaine-llmops/          workflow, deploy, gate, registre, Dockerfile
+├── 4-observabilite/          dashboard, 3 boucles, télémétrie, exploitation
+├── 5-frontend/               pages, routes, déploiement
+├── 6-tests/                  les 10 d'acceptance fournis + les 13 ajoutés
+└── assembler.py              régénère l'instantané
+```
+
+Les sections ci-dessous renvoient aux **originaux**, qui restent la référence.
+
 ---
 
 ## 1. Dossier de conception

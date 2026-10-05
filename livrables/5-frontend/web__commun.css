@@ -1,0 +1,111 @@
+:root {
+  --fond: #f7f7f8;
+  --carte: #fff;
+  --trait: #e3e3e6;
+  --texte: #16161a;
+  --doux: #5d5d68;
+  --accent: #2b6cb0;
+  --ok: #1d7a4c;
+  --tiede: #b7791f;
+  --ko: #b00020;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font: 15px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif;
+  color: var(--texte);
+  background: var(--fond);
+}
+header {
+  background: var(--carte);
+  border-bottom: 1px solid var(--trait);
+  padding: 1rem 1.5rem;
+  display: flex;
+  align-items: baseline;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+}
+header h1 { font-size: 1.1rem; margin: 0; }
+header a { color: var(--doux); text-decoration: none; font-size: .9rem; }
+header a:hover, header a[aria-current] { color: var(--accent); }
+header .version { margin-left: auto; font-size: .82rem; color: var(--doux); }
+main { max-width: 62rem; margin: 0 auto; padding: 1.5rem; }
+.carte {
+  background: var(--carte);
+  border: 1px solid var(--trait);
+  border-radius: .6rem;
+  padding: 1.1rem 1.3rem;
+  margin-bottom: 1.1rem;
+}
+h2 { font-size: 1rem; margin: 0 0 .8rem; }
+h2 small { font-weight: 400; color: var(--doux); }
+textarea {
+  width: 100%;
+  min-height: 11rem;
+  font: 13px/1.5 ui-monospace, "Cascadia Code", Consolas, monospace;
+  padding: .7rem;
+  border: 1px solid var(--trait);
+  border-radius: .4rem;
+  resize: vertical;
+}
+button {
+  font: inherit;
+  padding: .5rem 1.1rem;
+  border: 0;
+  border-radius: .4rem;
+  background: var(--accent);
+  color: #fff;
+  cursor: pointer;
+}
+button:disabled { background: #9aa6b2; cursor: progress; }
+button.discret { background: transparent; color: var(--doux); border: 1px solid var(--trait); }
+.ligne { display: flex; gap: .7rem; align-items: center; margin-top: .7rem; flex-wrap: wrap; }
+.doux { color: var(--doux); font-size: .88rem; }
+table { border-collapse: collapse; width: 100%; }
+th, td { padding: .45rem .6rem; border-bottom: 1px solid var(--trait); text-align: right; }
+th:first-child, td:first-child { text-align: left; }
+th { font-size: .8rem; color: var(--doux); font-weight: 600; }
+.pastille {
+  display: inline-block;
+  padding: .1rem .55rem;
+  border-radius: 1rem;
+  font-size: .78rem;
+  font-weight: 600;
+  color: #fff;
+  white-space: nowrap;   /* « À vérifier 75 % » ne doit pas se couper avant le signe % */
+}
+td:last-child { white-space: nowrap; width: 1%; }
+.pastille.haute { background: var(--ok); }
+.pastille.moyenne { background: var(--tiede); }
+.pastille.basse { background: var(--ko); }
+.extrait {
+  font: 12px/1.5 ui-monospace, Consolas, monospace;
+  color: var(--doux);
+  display: block;
+  margin-top: .2rem;
+}
+.tranche { display: flex; align-items: center; gap: .6rem; margin: .2rem 0; }
+.tranche .lbl { width: 13rem; font-size: .84rem; color: var(--doux); }
+.tranche .jauge { flex: 1; background: #ececef; height: .75rem; border-radius: .4rem; overflow: hidden; }
+.tranche .jauge i { display: block; height: 100%; background: var(--accent); }
+.tranche .cnt { width: 2.5rem; text-align: right; font-variant-numeric: tabular-nums; }
+.alerte { color: var(--ko); font-weight: 600; }
+ul.journal { list-style: none; padding: 0; margin: 0; font-size: .86rem; }
+ul.journal li { padding: .35rem 0; border-bottom: 1px solid var(--trait); }
+ul.journal b { font-weight: 600; }
+.vide { color: var(--doux); font-style: italic; }
+
+/* Cas capturés en attente de relecture (boucle 3). Une ligne par cas, l'extrait
+   sur sa propre ligne : superposé à l'identifiant, il devenait illisible. */
+.cas { padding: .6rem 0; border-bottom: 1px solid var(--trait); }
+.cas:last-child { border-bottom: 0; }
+.cas .entete { display: flex; gap: .8rem; align-items: baseline; flex-wrap: wrap; }
+.cas .entete b { font-family: ui-monospace, Consolas, monospace; }
+.cas .extrait { white-space: pre-wrap; margin-top: .35rem; max-height: 4.5rem; overflow: hidden; }
+.cas .retire { font-size: .8rem; color: var(--doux); margin-top: .25rem; }
+
+/* Formulaire de relecture d'un cas capturé (boucle 3). */
+.relire { margin-top: .5rem; padding: .5rem .7rem; background: #f3f5f8; border-radius: .4rem; }
+.relire label { display: inline-block; font-size: .82rem; margin: .1rem .7rem .1rem 0; white-space: nowrap; }
+.relire .ligne { margin-top: .5rem; }
+.relire button { font-size: .85rem; padding: .35rem .8rem; }
