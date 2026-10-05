@@ -1,0 +1,191 @@
+# Chaîne LLMOps.
+#
+# Principe de découpage : la CI de chaque fusion tourne en MOCK=on — elle ne
+# paie rien, ne dépend d'aucun fournisseur et reste déterministe, donc un échec
+# y désigne toujours une régression de code. Ce qu'elle NE peut pas vérifier,
+# c'est la qualité réelle du modèle : les fixtures rejouent des réponses
+# enregistrées, pas le modèle du jour. Cette vérification-là appartient au gate
+# de release (`gate-modele-reel`), qui appelle le vrai modèle, tourne sur tag ou
+# à la demande, et moyenne plusieurs passes pour absorber le non-déterminisme.
+#
+# Ce que la CI MOCK vérifie vraiment : que la chaîne tient (découpage complet,
+# schéma respecté, consolidation sans doublon, publication refusée si le gate
+# échoue, rollback en une opération) — la mécanique, pas la note du modèle.
+#
+# Équivalent local : `make ci`.
+
+name: llmops
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Étiquette à publier (vX.Y.Z)"
+        required: false
+      essais:
+        description: "Passes du gate sur le vrai modèle"
+        required: false
+        default: "3"
+
+env:
+  MOCK: "on"
+  DRIFT: "off"
+  LLM_PROVIDER: ollama
+  LLM_MODEL: modele-ci
+  SEUIL_GATE: "0.75"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.11"
+      - run: uv sync
+      - run: uv run ruff check .
+
+  tests:
+    needs: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.11"
+      - run: uv sync
+      - name: Tests d'intégration (hérités de la remédiation)
+        run: uv run pytest -q tests/integration
+      - name: Tests d'acceptance (le brief)
+        run: uv run pytest -q tests/acceptance
+      # Le contrat historique est vérifié séparément, sans dépendre du reste de
+      # la suite : c'est l'engagement « la v1 ne casse jamais », il doit sauter
+      # aux yeux dans le rapport de build quand il tombe.
+      - name: Contrat v1 — non-régression du client historique
+        run: uv run pytest -q tests/acceptance -k client_v1
+
+  gate-evaluation:
+    needs: tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.11"
+      - run: uv sync
+      - name: Gate d'évaluation — v2 (MOCK)
+        run: uv run python -m eval.run_eval --version v2 --seuil "$SEUIL_GATE"
+      # La v1 est évaluée aussi, sans bloquer : sa note est la ligne de base
+      # contre laquelle on lit celle de la v2 d'un build à l'autre.
+      - name: Note de référence — v1 (indicatif)
+        continue-on-error: true
+        run: uv run python -m eval.run_eval --version v1 --seuil "$SEUIL_GATE"
+      - name: Historique d'évaluation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-history-${{ github.sha }}
+          path: eval/history.jsonl
+          if-no-files-found: warn
+
+  build:
+    needs: gate-evaluation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Image de l'application
+        run: docker build -t mardik:${{ github.sha }} .
+
+  # Gate de release : le seul job qui appelle un vrai modèle. Il ne tourne pas
+  # sur chaque fusion — 12 contrats × ~20 sections × N passes, à chaque PR de
+  # chaque équipe, coûterait plus que le service lui-même.
+  gate-modele-reel:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    env:
+      MOCK: "off"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.11"
+      - run: uv sync
+      - name: Ollama + modèle
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          ollama serve &
+          sleep 5
+          ollama pull llama3.2:3b
+      - name: Gate sur le vrai modèle (plusieurs passes)
+        env:
+          LLM_MODEL: llama3.2:3b
+          LLM_PROXY_URL: http://localhost:11434
+        run: |
+          uv run python -m eval.run_eval --version v2 \
+            --seuil "$SEUIL_GATE" \
+            --essais "${{ github.event.inputs.essais || 3 }}"
+      - name: Historique d'évaluation (modèle réel)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-history-reel-${{ github.sha }}
+          path: eval/history.jsonl
+
+  publication:
+    needs: gate-modele-reel
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.11"
+      - run: uv sync
+      # `ops.deploy publier` rejoue le gate et REFUSE si la note est sous le
+      # seuil : la CI ne peut pas court-circuiter la décision, même en cas
+      # d'erreur de configuration d'un job en amont.
+      - name: Étiqueter la version
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          [ -n "$VERSION" ] || VERSION="${GITHUB_REF_NAME}"
+          uv run python -m ops.deploy publier "$VERSION" --seuil "$SEUIL_GATE"
+      - name: Artefact de version (bundle + manifeste)
+        uses: actions/upload-artifact@v4
+        with:
+          name: registry-${{ github.sha }}
+          path: ops/registry/
+
+  deploiement-canary:
+    needs: publication
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          python-version: "3.11"
+      - run: uv sync
+      - uses: actions/download-artifact@v4
+        with:
+          name: registry-${{ github.sha }}
+          path: ops/registry/
+      - name: Canary 10 %
+        run: |
+          VERSION="${{ github.event.inputs.version }}"
+          [ -n "$VERSION" ] || VERSION="${GITHUB_REF_NAME}"
+          uv run python -m ops.deploy canary "$VERSION" --pourcentage 10
+      # La promotion n'est pas dans ce workflow : elle dépend de signaux de
+      # production que la CI n'a pas (score, erreurs, latence sur du trafic
+      # réel). C'est `ops.deploy surveiller --boucle`, lancé à côté de l'app,
+      # qui promeut ou revient en arrière — la boucle de rétroaction vit là où
+      # vivent les mesures, pas dans le runner qui s'éteint après le job.
+      - name: Rappel de la suite
+        run: |
+          echo "Canary posé. Surveillance : python -m ops.deploy surveiller --boucle"
+          echo "Promotion : python -m ops.deploy promouvoir <version>"
+          echo "Retour arrière : python -m ops.deploy rollback --motif '<signal>'"

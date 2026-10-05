@@ -19,7 +19,7 @@ import os
 import sys
 
 from app.llm_client import Bundle
-from ops.deploy import ErreurDeploiement, deployer_canary, publier
+from ops.deploy import ErreurDeploiement, ajuster_seuil, deployer_canary, publier
 from ops.registry import ErreurRegistre, Registry
 
 CONTRATS_AMORCAGE = ["c01", "c02", "c07"]
@@ -44,6 +44,17 @@ def amorcer(registry: Registry | None = None, *, pourcentage: int = 20) -> dict:
         publier("v2.0.0", bundle="v2", commit=os.environ.get("COMMIT", "demo"),
                 registry=registre, rapport=rapport)
         deployer_canary("v2.0.0", pourcentage=pourcentage, registry=registre)
+        # En mode MOCK la confiance tourne autour de 0,73 : au seuil de production
+        # (0,70) la boucle 3 ne capturerait jamais rien et resterait invisible. On
+        # le relève — par `ajuster_seuil`, donc l'écart est tracé au journal comme
+        # n'importe quel ajustement, et visible au tableau de bord.
+        if os.environ.get("DEMO", "off").lower() == "on":
+            ajuster_seuil(
+                "faible_confiance", 0.78,
+                auteur="amorcage-demo",
+                motif="instance de demonstration (MOCK) : rendre la boucle 3 observable",
+                registry=registre,
+            )
     except (ErreurDeploiement, ErreurRegistre) as exc:
         return {"amorce": True, "canary": False, "motif": f"v2 non publiée : {exc}"}
 

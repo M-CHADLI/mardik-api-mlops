@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mardik — analyse de contrats</title>
+<link rel="stylesheet" href="/web/commun.css">
+</head>
+<body>
+<header>
+  <h1>Mardik — analyse de contrats</h1>
+  <a href="/" aria-current="page">Analyser</a>
+  <a href="/pilotage">Pilotage</a>
+  <span class="version" id="version-servie">—</span>
+</header>
+
+<main>
+  <div class="carte">
+    <h2>Votre contrat <small>— collez le texte intégral, sans limite de longueur</small></h2>
+    <textarea id="texte" placeholder="Collez ici le texte du contrat à analyser…"></textarea>
+    <div class="ligne">
+      <button id="analyser">Analyser</button>
+      <button class="discret" id="exemple">Charger un contrat d'exemple</button>
+      <span class="doux" id="etat"></span>
+    </div>
+  </div>
+
+  <div class="carte" id="resultat" hidden>
+    <h2>Clauses relevées <small id="resume-analyse"></small></h2>
+    <p class="doux" id="avertissement"></p>
+    <table>
+      <thead>
+        <tr><th>Clause</th><th>Fiabilité</th></tr>
+      </thead>
+      <tbody id="clauses"></tbody>
+    </table>
+  </div>
+
+  <div class="carte" id="erreur" hidden>
+    <h2 class="alerte">L'analyse n'a pas abouti</h2>
+    <p id="erreur-detail"></p>
+  </div>
+</main>
+
+<script>
+// La page parle au client la langue du métier : « fiabilité », pas « score ».
+// Les trois paliers correspondent aux décisions possibles d'un juriste —
+// exploiter, vérifier, reprendre — et non à un découpage arithmétique.
+const PALIERS = [
+  { min: 0.85, classe: 'haute',   mot: 'Fiable' },
+  { min: 0.70, classe: 'moyenne', mot: 'À vérifier' },
+  { min: 0.00, classe: 'basse',   mot: 'À reprendre' },
+];
+
+const palier = (v) => PALIERS.find((p) => v >= p.min);
+const $ = (id) => document.getElementById(id);
+
+async function analyser() {
+  const texte = $('texte').value.trim();
+  $('erreur').hidden = true;
+  if (texte.length < 20) {
+    return montrerErreur("Le texte est trop court pour être un contrat (20 caractères minimum).");
+  }
+  $('analyser').disabled = true;
+  $('etat').textContent = 'analyse en cours…';
+  const debut = performance.now();
+  try {
+    // On passe par la gateway (/analyse) et non par /v2 : c'est elle qui décide
+    // quelle version sert la requête, donc la page voit ce que voit un vrai client.
+    const r = await fetch('/analyse', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ texte }),
+    });
+    const corps = await r.json();
+    if (!r.ok) return montrerErreur(corps.detail || `erreur ${r.status}`);
+    $('version-servie').textContent = 'servi par ' + (r.headers.get('X-Mardik-Version') || '?');
+    afficher(corps, performance.now() - debut);
+  } catch (e) {
+    montrerErreur("Le service est injoignable : " + e.message);
+  } finally {
+    $('analyser').disabled = false;
+    $('etat').textContent = '';
+  }
+}
+
+function afficher(corps, ms) {
+  const globale = corps.confiance_globale;
+  const lignes = (corps.clauses || []).map((c) => {
+    const p = palier(c.confiance);
+    return `<tr>
+      <td><b>${c.type}</b><span class="extrait">${echapper(c.extrait).slice(0, 180)}</span></td>
+      <td><span class="pastille ${p.classe}">${p.mot} ${(c.confiance * 100).toFixed(0)} %</span></td>
+    </tr>`;
+  });
+  $('clauses').innerHTML = lignes.join('') ||
+    '<tr><td colspan="2" class="vide">Aucune clause connue relevée.</td></tr>';
+
+  if (globale === undefined) {
+    // Réponse de la v1 : pas d'indice de fiabilité, et le texte a pu être tronqué.
+    $('resume-analyse').textContent = `— version ${corps.version}, ${Math.round(ms)} ms`;
+    $('avertissement').textContent = corps.tronque
+      ? "Cette version a tronqué le contrat : les clauses de la fin n'ont pas été examinées."
+      : "Cette version ne fournit pas d'indice de fiabilité.";
+  } else {
+    const p = palier(globale);
+    $('resume-analyse').innerHTML =
+      `— ${corps.sections} section(s), ${Math.round(ms)} ms, ` +
+      `fiabilité d'ensemble <span class="pastille ${p.classe}">${(globale * 100).toFixed(0)} %</span>`;
+    $('avertissement').textContent = globale < 0.70
+      ? "Fiabilité basse : une relecture humaine complète est recommandée."
+      : "";
+  }
+  $('resultat').hidden = false;
+}
+
+function montrerErreur(message) {
+  $('erreur-detail').textContent = message;
+  $('erreur').hidden = false;
+  $('resultat').hidden = true;
+}
+
+const echapper = (s) => String(s).replace(/[<>&]/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c]));
+
+$('analyser').addEventListener('click', analyser);
+$('exemple').addEventListener('click', async () => {
+  $('etat').textContent = 'chargement…';
+  const r = await fetch('/api/exemple');
+  $('texte').value = (await r.json()).texte;
+  $('etat').textContent = '';
+});
+</script>
+</body>
+</html>
