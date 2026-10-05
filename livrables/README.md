@@ -1,203 +1,140 @@
 # Livrables — Mardik v2
 
-*Brief « Du prototype au produit » — chaîne LLMOps et observabilité.
-Index du rendu : chaque livrable attendu, où il se trouve, et comment le vérifier.*
+*Brief « Mardik — livrer et piloter la nouvelle version » (création, phase 4 :
+chaîne LLMOps & observabilité).*
 
 | | |
 |---|---|
-| **Application en ligne** | **https://mardik-api.onrender.com/** — [client](https://mardik-api.onrender.com/) · [pilotage](https://mardik-api.onrender.com/pilotage) · [API](https://mardik-api.onrender.com/docs) |
+| **Application** | https://mardik-api.onrender.com/ — [client](https://mardik-api.onrender.com/) · [pilotage](https://mardik-api.onrender.com/pilotage) · [API](https://mardik-api.onrender.com/docs) |
 | **Dépôt** | https://github.com/M-CHADLI/mardik-api-mlops |
-| **Pull request** | [#1 — Chaîne LLMOps v2](https://github.com/M-CHADLI/mardik-api-mlops/pull/1) |
 
-## Contenu de ce dossier
-
-Les fichiers sont regroupés ici sous les cinq intitulés du brief. Ce sont des
-**copies** : la source dans le dépôt fait foi, et `python -m livrables.assembler`
-les régénère (voir `INSTANTANE.txt` pour le commit de référence).
-
-```
-livrables/
-├── INSTANTANE.txt            commit et date de l'assemblage
-├── 1-dossier-de-conception/  conception + expression de besoin
-├── 2-api-v2/                 API v2, pipeline, gateway, bundles, client v1
-├── 3-chaine-llmops/          workflow, deploy, gate, registre, Dockerfile
-├── 4-observabilite/          dashboard, 3 boucles, télémétrie, exploitation
-├── 5-frontend/               pages, routes, déploiement
-├── 6-tests/                  les 10 d'acceptance fournis + les 13 ajoutés
-└── assembler.py              régénère l'instantané
-```
-
-Les sections ci-dessous renvoient aux **originaux**, qui restent la référence.
+Ce dossier contient les **cinq livrables du brief, et rien d'autre** : ni les
+fichiers fournis avec le squelette, ni les tests, ni l'outillage. Les fichiers
+sont des copies ; la source dans le dépôt fait foi, et
+`python -m scripts.assembler_livrables` les régénère (`INSTANTANE.txt` donne le
+commit de référence). Les PDF se régénèrent par
+`python -m scripts.exporter_pdf` — on corrige le Markdown, jamais le PDF.
 
 ---
 
 ## 1. Dossier de conception
 
-**[`docs/dossier-de-conception.md`](../docs/dossier-de-conception.md)**
+> *besoin + contrat d'API + schéma de chaîne + schéma de boucle + tableau de pilotage*
 
-Les six pièces demandées, dans cet ordre : synthèse du besoin (fonctionnel /
-contraintes / hors périmètre), langage du domaine, choix d'outils non triviaux,
-contrat d'API v2, schéma de la chaîne LLMOps, schéma de la boucle
-d'observabilité, et le tableau de pilotage *signal × seuil × rétroaction ×
-trace*. Se termine par les questions ouvertes du brief et les réponses retenues.
+**[`1-dossier-de-conception/`](1-dossier-de-conception/)** — **en PDF**
+(`docs__dossier-de-conception.pdf`), avec le Markdown source à côté. Un
+document, les cinq pièces dans l'ordre :
+
+| § | Pièce |
+|---|---|
+| 1 | Synthèse du besoin — fonctionnel, contraintes, **hors périmètre** (traduction et chatbot, et pourquoi) |
+| 2 | Langage du domaine — *contrat tronqué*, *analyse non fiable*, ce que « confiance » veut dire pour un juriste qui décide |
+| 3 | Choix d'outils non triviaux |
+| 4 | **Contrat d'API** — `/v1` intangible, `/v2`, la gateway, codes d'erreur, règle de versionnage |
+| 5 | **Schéma de la chaîne LLMOps** — gates bloquants → build → artefact étiqueté → canary |
+| 6 | **Schéma de la boucle d'observabilité** — signaux → seuils → les trois rétroactions |
+| 7 | **Tableau de pilotage** — signal × seuil × rétroaction × trace |
+| 8 | Questions ouvertes du brief et réponses retenues |
 
 ---
 
 ## 2. L'API v2 du modèle
 
-Documents longs, score de confiance, erreurs explicites — **v1 intacte**.
+> *documents longs + score de confiance + erreurs explicites, v1 intacte*
 
-| Fichier | Rôle |
+**[`2-api-v2/`](2-api-v2/)**
+
+| Fichier | Ce qu'il porte |
 |---|---|
-| [`app/api_v2.py`](../app/api_v2.py) | contrat `/v2`, orchestration map-reduce, appels de sections parallélisés |
-| [`app/pipeline/decoupage.py`](../app/pipeline/decoupage.py) | découpage par article, invariant « rien n'est perdu » |
-| [`app/pipeline/extraction.py`](../app/pipeline/extraction.py) | un appel LLM par section, sortie JSON contrainte |
-| [`app/pipeline/consolidation.py`](../app/pipeline/consolidation.py) | fusion et dédoublonnage |
-| [`app/pipeline/confiance.py`](../app/pipeline/confiance.py) | score composite : confiance déclarée × ancrage de l'extrait |
-| [`app/gateway.py`](../app/gateway.py) | routage canary, en-tête `X-Mardik-Version` |
-| [`models/v2/config.yaml`](../models/v2/config.yaml) | **le bundle = la version** |
-| [`app/api_v1.py`](../app/api_v1.py) | **non modifié** — le contrat historique |
+| `app__api_v2.py` | le contrat `/v2`, l'orchestration map-reduce, les appels de sections parallélisés |
+| `app__pipeline__decoupage.py` | **documents longs** : découpage par article, invariant « rien n'est perdu » |
+| `app__pipeline__extraction.py` | un appel LLM par section, sortie JSON contrainte |
+| `app__pipeline__consolidation.py` | fusion et dédoublonnage des clauses |
+| `app__pipeline__confiance.py` | **score de confiance** : confiance déclarée × ancrage de l'extrait |
+| `app__gateway.py` | routage canary, en-tête `X-Mardik-Version` |
+| `models__v2__config.yaml` | le bundle — *la version*, au sens où on l'étiquette et la rollback |
 
-**Vérification :** `python scripts/client_v1.py` sort en 0, et le test
-`test_client_v1_fonctionne` tourne à chaque fusion.
+**Erreurs explicites** : 422 (corps invalide), 503 (fournisseur indisponible,
+aucune version active), 500 nommé et journalisé — jamais de 500 muet.
+
+**v1 intacte** : `app/api_v1.py` n'est **pas** dans ce dossier, et c'est le
+propos — il est fourni et non modifié. La non-régression est vérifiée à chaque
+fusion par `scripts/client_v1.py` et le test `test_client_v1_fonctionne`.
 
 ---
 
 ## 3. La chaîne LLMOps
 
-**[`.github/workflows/llmops.yml`](../.github/workflows/llmops.yml)**
+> *fichier yml : gates bloquants, artefacts étiquetés, déploiement canary*
 
-```
-PR / push main ──► lint ──► tests ──► gate d'évaluation (MOCK) ──► build
-                                                                     │
-tag vX.Y.Z ──────────────────────────────────────────────────────────┤
-                                                                     ▼
-              gate MODÈLE RÉEL ──► étiquetage registre ──► canary 10 %
-```
+**[`3-chaine-llmops/`](3-chaine-llmops/)**
 
-| Fichier | Rôle |
+| Fichier | Ce qu'il porte |
 |---|---|
-| [`eval/run_eval.py`](../eval/run_eval.py) | le gate : note, latence P95, coût, dispersion entre passes |
-| [`ops/deploy.py`](../ops/deploy.py) | publier · canary · promouvoir · rollback · surveiller |
-| [`ops/registry/`](../ops/registry/) | artefacts étiquetés, manifestes, `index.json` |
+| `.github__workflows__llmops.yml` | **le fichier yml** : lint → tests → gate d'évaluation → build → gate modèle réel → étiquetage → canary |
+| `eval__run_eval.py` | **le gate** : note, latence P95, coût, dispersion entre passes |
+| `ops__deploy.py` | **étiquetage**, **canary**, promotion, rollback, surveillance |
 
-**Ce qui bloque :** `ops.deploy.publier` rejoue le gate et refuse l'étiquetage
-s'il échoue. Aucun chemin vers le registre ne contourne la vérification, ni par
-la CI, ni par la console.
+**Ce qui bloque** : `publier()` rejoue le gate et refuse l'étiquetage s'il
+échoue. Aucun chemin vers le registre ne contourne la vérification, ni par la
+CI, ni par la console.
 
-**Ce que la CI vérifie sans le vrai modèle :** la mécanique (déterministe,
-gratuite, donc légitime pour bloquer une PR). La note du modèle relève du gate
-de release, sur tag.
+**Artefact étiqueté** : un dossier `ops/registry/vX.Y.Z/` avec le bundle figé et
+son manifeste — commit, empreinte SHA-256 du bundle, note d'éval, seuil,
+latence, coût, confiance de référence, date.
 
 ---
 
-## 4. L'observabilité qui pilote
+## 4. L'observabilité
 
-### Tableau de bord — [`ops/dashboard.py`](../ops/dashboard.py)
+> *tableau de bord + les trois boucles de rétroaction + le journal de pilotage*
 
-Trafic v1/v2, latence P50/P95, taux d'erreur, coût, et la **distribution** du
-score de confiance (tranches métier + P10/P50/P90), pas seulement sa moyenne.
+**[`4-observabilite/`](4-observabilite/)**
 
-> Dix analyses à 0,95 et dix à 0,45 donnent la même moyenne que vingt à 0,70.
-> Seule la distribution distingue ces deux situations.
+| Fichier | Ce qu'il porte |
+|---|---|
+| `ops__dashboard.py` | **tableau de bord** : trafic v1/v2, latence P50/P95, taux d'erreur, coût, et la **distribution** du score (tranches métier + P10/P50/P90) |
+| `eval__enrichissement.py` | **boucle 3** : capture des cas peu fiables → validation humaine → versement au jeu d'éval → rejeu par le gate |
+| `eval__anonymisation.py` | pseudonymisation avant toute écriture disque (un cas versé part dans Git et dans la CI) |
+| `docs__journal-de-pilotage-exemple.jsonl` | **le journal de pilotage** : un cycle complet réel |
 
-### Les trois boucles de rétroaction
+**Les boucles 1 et 2** vivent dans `ops/deploy.py`, livré au §3 pour ne pas le
+dupliquer :
 
-Les trois sont **déclenchables depuis le tableau de bord en ligne** (boutons
-« Boucle 1 » et « Boucle 2 », formulaire de relecture pour la boucle 3), en plus
-de la ligne de commande.
-
-| # | Boucle | Code | Déclencheur |
+| # | Boucle | Fonction | Déclencheur |
 |---|---|---|---|
-| 1 | **Rollback sur signal** | [`ops/deploy.py::surveiller`](../ops/deploy.py) | confiance < 0,70, erreurs > 10 %, ou P95 > 8 s — automatique |
-| 2 | **Promotion canary pilotée** | [`ops/deploy.py::promouvoir_si_conforme`](../ops/deploy.py) | confiance ≥ référence du gate − marge, sur ≥ 30 mesures → 10 → 30 → 100 % |
-| 3 | **Enrichissement du jeu d'éval** | [`eval/enrichissement.py`](../eval/enrichissement.py) | analyse servie sous le seuil → pseudonymisation → validation humaine → rejeu au gate |
+| 1 | Rollback sur signal | `surveiller()` | confiance < 0,70, erreurs > 10 %, ou P95 > 8 s — automatique |
+| 2 | Promotion canary pilotée | `promouvoir_si_conforme()` | confiance ≥ référence du gate − marge, sur ≥ 30 mesures → 10 → 30 → 100 % |
+| 3 | Enrichissement du jeu d'éval | `eval/enrichissement.py` | analyse servie sous le seuil de confiance |
 
-**« Dérive par rapport à quoi ? »** Par rapport à la confiance mesurée *par le
-gate*, figée dans le manifeste de la version — pas une moyenne glissante, qui
-absorberait lentement la dérive qu'elle est censée détecter.
+Les trois sont déclenchables depuis le tableau de bord en ligne.
 
-### Journal de pilotage et seuils
+**Le journal livré** couvre un cycle entier, dans l'ordre :
 
-| Fichier | Rôle |
+```
+publication · canary · ajustement_seuil · capture_faible_confiance ×6
+· promotion_canary · enrichissement_jeu_evaluation · rollback
+```
+
+avec, sur la dernière ligne, le motif qui a déclenché le retour arrière —
+`score de confiance moyen 0.523 < 0.7` — et l'état avant/après.
+
+---
+
+## 5. Un client via un frontend accessible via un lien
+
+> **https://mardik-api.onrender.com/**
+
+**[`5-frontend/`](5-frontend/)**
+
+| Fichier | Ce qu'il porte |
 |---|---|
-| `ops/registry/journal.jsonl` | une ligne JSON par événement : date, signal, valeur, seuil, avant/après |
-| [`ops/deploy.py::ajuster_seuil`](../ops/deploy.py) | tout changement de seuil est tracé avec auteur et motif |
-| [`eval/anonymisation.py`](../eval/anonymisation.py) | pseudonymisation avant toute écriture disque |
+| `web__index.html` | le client juriste : coller un contrat → clauses et **fiabilité** |
+| `web__tableau-de-bord.html` | le pilotage : trafic, distribution, cas à relire, journal |
+| `web__commun.css` | la feuille de style |
+| `app__frontend.py` | les routes et l'API du frontend |
+| `render.yaml` | le déploiement qui produit le lien |
 
-Événements journalisés : `publication`, `canary`, `promotion_canary`,
-`promotion_refusee`, `promotion`, `rollback`, `capture_faible_confiance`,
-`enrichissement_jeu_evaluation`, `capture_rejetee`, `ajustement_seuil`.
-
----
-
-## 5. Le client — frontend accessible par un lien
-
-| Page | Fichier | Contenu |
-|---|---|---|
-| `/` | [`web/index.html`](../web/index.html) | le juriste colle un contrat, lit les clauses et leur **fiabilité** |
-| `/pilotage` | [`web/tableau-de-bord.html`](../web/tableau-de-bord.html) | trafic, distribution, cas capturés, journal |
-| — | [`app/frontend.py`](../app/frontend.py) | routes et API du frontend |
-| — | [`app/frontend.py`](../app/frontend.py) | routes de pilotage, actives seulement si `DEMO=on` |
-| — | [`render.yaml`](../render.yaml) | déploiement (Render, `MOCK=on` : la démonstration publique ne consomme pas de clé API) |
-
-Le client tape sur `/analyse` (la gateway) et non sur `/v2` : il voit donc
-exactement ce que voit un vrai client, canary compris. L'interface parle la
-langue du métier — *fiable*, *à vérifier*, *à reprendre* — et non « score ».
-
----
-
-## Documentation d'exploitation
-
-**[`docs/exploitation.md`](../docs/exploitation.md)** — le document à ouvrir à
-3 h du matin : qu'est-ce qu'une version, schéma d'étiquetage, chaîne de
-livraison, déploiement progressif, procédure de rollback, seuils et leur
-justification, faux positifs connus, et le transcript d'exécution complet des
-trois boucles.
-
----
-
-## Preuves d'exécution
-
-```
-29 tests verts    10 d'acceptance fournis (9 rouges au départ)
-                  13 pour les critères restants (3 boucles, distribution, seuils, frontend)
-                   6 d'intégration hérités de la remédiation
-ruff check        propre
-gate v2           note 1.000 · P95 21 ms · coût 0,0329 € · GATE : PASSE
-gate v1           ÉCHEC sur c07, c10, c12 — la douleur du client, devenue mesure
-CI                lint · tests · gate-evaluation · build  → verts
-
-en ligne          POST /analyse sur un contrat de 40 pages
-                  → 200, servi par v2.0.0, 35 sections, 35 appels LLM,
-                    12 clauses relevées, fiabilité 0,734
-                  → canary actif : v1.0.0 à 80 %, v2.0.0 à 20 %
-```
-
-### Rejouer la démonstration
-
-```bash
-make install
-make test                                    # 29 tests
-make eval VERSION=v1                         # la v1 échoue sur les contrats longs
-make eval VERSION=v2                         # la v2 passe
-make frontend                                # client + pilotage sur :8000
-
-# les trois boucles
-make traffic MODE=derive-score DUREE=120     # dérive injectée par le proxy
-python -m ops.deploy surveiller --boucle     # boucle 1 : rollback automatique
-python -m ops.deploy promouvoir-auto         # boucle 2 : promotion si conforme
-make captures                                # boucle 3 : cas en attente de relecture
-```
-
----
-
-## Réserves
-
-- Les mesures des transcripts viennent du mode `MOCK` : la confiance y est
-  constante, donc **les seuils de dérive doivent être recalibrés sur du trafic
-  réel** avant d'armer la surveillance automatique en production.
-- Le passage du canary à 100 % reste une décision humaine : aucun signal
-  disponible ne mesure la justesse juridique des clauses relevées.
-- La traduction et le chatbot évoqués en fin d'expression de besoin sont hors
-  périmètre, et pourquoi — voir le dossier de conception, §1.
+Le client tape sur `/analyse` (la gateway), pas sur `/v2` : il voit donc ce que
+voit un vrai client, canary compris. L'interface parle la langue du métier —
+*fiable*, *à vérifier*, *à reprendre* — et non « score ».
