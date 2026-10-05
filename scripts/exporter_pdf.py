@@ -24,10 +24,12 @@ from pathlib import Path
 
 RACINE = Path(__file__).resolve().parent.parent
 
+# Les documents de conception, ceux que l'instructeur lit en PDF. Le sommaire
+# `livrables/README.md` n'y est pas : il est fait pour être lu sur GitHub, où
+# ses liens relatifs fonctionnent — un PDF les casserait.
 DOCUMENTS = [
     RACINE / "docs" / "dossier-de-conception.md",
     RACINE / "docs" / "exploitation.md",
-    RACINE / "livrables" / "README.md",
 ]
 
 CHEMINS_CHROME = (
